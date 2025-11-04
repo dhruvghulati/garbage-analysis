@@ -38,6 +38,7 @@ class EventSegmenter:
         
         events = []
         current_event = []
+        event_id_counter = 1
         
         for i, frame in enumerate(frames_with_detections):
             if not frame.get('has_bin', False):
@@ -48,7 +49,8 @@ class EventSegmenter:
                     current_timestamp = frame['timestamp']
                     if current_timestamp - last_timestamp > self.gap_threshold:
                         # Save event and start new one
-                        events.append(self._create_event(current_event))
+                        events.append(self._create_event(current_event, event_id_counter))
+                        event_id_counter += 1
                         current_event = []
                 continue
             
@@ -62,7 +64,8 @@ class EventSegmenter:
                     current_event.append(frame)
                 else:
                     # Gap too large, start new event
-                    events.append(self._create_event(current_event))
+                    events.append(self._create_event(current_event, event_id_counter))
+                    event_id_counter += 1
                     current_event = [frame]
             else:
                 # Start new event
@@ -70,16 +73,17 @@ class EventSegmenter:
         
         # Don't forget the last event
         if current_event:
-            events.append(self._create_event(current_event))
+            events.append(self._create_event(current_event, event_id_counter))
         
         return events
     
-    def _create_event(self, frames: List[Dict]) -> Dict:
+    def _create_event(self, frames: List[Dict], event_id: int) -> Dict:
         """
         Create an event dictionary from a list of frames.
         
         Args:
             frames: List of frames belonging to the event
+            event_id: Unique identifier for this event
             
         Returns:
             Event dictionary with metadata
@@ -97,6 +101,7 @@ class EventSegmenter:
         representative_frame = frames[mid_index]
         
         return {
+            'event_id': event_id,
             'frames': frames,
             'start_time': start_time,
             'end_time': end_time,
@@ -144,6 +149,7 @@ class EventSegmenter:
         clips_extracted = 0
         
         for event_idx, event in enumerate(events):
+            # Get event_id, defaulting to index+1 if not present (backwards compatibility)
             event_id = event.get('event_id', event_idx + 1)
             center_time = event.get('center_time', 0)
             
@@ -153,9 +159,10 @@ class EventSegmenter:
             
             # Check if clip already exists
             if os.path.exists(clip_path):
-                # Clip exists, just add the path
+                # Clip exists, just add the path and ensure event_id is preserved
                 event_with_clip = {
                     **event,
+                    'event_id': event_id,  # Explicitly preserve event_id
                     'clip_path': clip_path
                 }
                 clips_loaded += 1
@@ -172,6 +179,7 @@ class EventSegmenter:
                 
                 event_with_clip = {
                     **event,
+                    'event_id': event_id,  # Explicitly preserve event_id
                     'clip_path': clip_path
                 }
                 clips_extracted += 1
