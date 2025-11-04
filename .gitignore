@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Project outputs
+outputs/
+*.mp4
+*.avi
+*.mov
+*.jpg
+*.png
+*.jpeg
+
+# Models
+*.pt
+*.pth
+*.onnx
+*.pb
+*.h5
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# API keys
+.env
+*.key
+config_local.py
+
+# Logs
+*.log
