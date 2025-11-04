@@ -23,7 +23,7 @@ An AI-powered system that detects and analyzes garbage bin events in YouTube vid
 
 1. Clone the repository and navigate to the project directory:
 ```bash
-cd /Users/dhruvghulati/Documents/Coding/projects/garbage
+cd /Users/dhruvghulati/Documents/Coding/projects/garbage-analysis
 ```
 
 2. Install dependencies:
