@@ -9,7 +9,7 @@ from pathlib import Path
 import config
 
 
-def download_video(url_or_path: str, output_dir: str = None) -> str:
+def download_video(url_or_path: str, output_dir: str = None, cookies_file: str = None) -> str:
     """
     Download a YouTube video or use a local video file.
     Checks if video already exists and skips download if found.
@@ -17,6 +17,7 @@ def download_video(url_or_path: str, output_dir: str = None) -> str:
     Args:
         url_or_path: YouTube video URL or local file path
         output_dir: Directory to save the video (default: outputs/videos)
+        cookies_file: Path to cookies file (Netscape format) for authentication
         
     Returns:
         Path to the video file (local file or downloaded file)
@@ -59,7 +60,10 @@ def download_video(url_or_path: str, output_dir: str = None) -> str:
     
     # Extract video ID to get correct ID (may differ from URL parsing)
     ext = 'mp4'
-    with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'noplaylist': True}) as ydl:
+    ydl_opts_check = {'quiet': True, 'no_warnings': True, 'noplaylist': True}
+    if cookies_file and os.path.exists(cookies_file):
+        ydl_opts_check['cookiefile'] = cookies_file
+    with yt_dlp.YoutubeDL(ydl_opts_check) as ydl:
         try:
             info = ydl.extract_info(url, download=False)
             video_id = info.get('id', video_id)
@@ -87,6 +91,11 @@ def download_video(url_or_path: str, output_dir: str = None) -> str:
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'extractor_args': {'youtube': {'skip': ['dash', 'hls']}},
     }
+    
+    # Add cookies file if provided
+    if cookies_file and os.path.exists(cookies_file):
+        ydl_opts['cookiefile'] = cookies_file
+        print(f"   🍪 Using cookies file: {cookies_file}")
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         # Extract video info and download

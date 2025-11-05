@@ -72,6 +72,12 @@ def main():
         default=None,
         help='Sample size for VLM analysis (default: analyze all events)'
     )
+    parser.add_argument(
+        '--cookies',
+        type=str,
+        default=None,
+        help='Path to cookies file (Netscape format) for YouTube authentication'
+    )
     
     args = parser.parse_args()
     
@@ -96,7 +102,7 @@ def main():
     try:
         # Step 1: Download video (or use existing/local file)
         print("📥 Step 1/7: Checking video...")
-        video_path = video_processor.download_video(args.url)
+        video_path = video_processor.download_video(args.url, cookies_file=args.cookies)
         print(f"✅ Video ready: {video_path}\n")
         
         # Step 2: Get video info
