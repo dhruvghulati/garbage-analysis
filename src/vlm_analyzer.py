@@ -361,6 +361,168 @@ CONFIDENCE: [high/medium/low]"""
         
         return analyzed_events
     
+    def analyze_clip_sequence(self, frame_paths: List[str], clip_info: Dict = None) -> Dict:
+        """
+        Analyze a video clip by examining multiple frames together to get a narrative description.
+        
+        Args:
+            frame_paths: List of frame image paths from the clip
+            clip_info: Optional information about the clip (duration, timestamp, etc.)
+            
+        Returns:
+            Dictionary with analysis results including narrative description
+        """
+        if self.cost_exceeded:
+            return {
+                'event_type': 'No event detected',
+                'description': f'Cost limit reached (${self.max_cost:.2f}). Skipped analysis.',
+                'confidence': 'low',
+                'narrative': '',
+                'cost_exceeded': True
+            }
+        
+        if not frame_paths:
+            return {
+                'event_type': 'No event detected',
+                'description': 'No frames provided',
+                'confidence': 'low',
+                'narrative': ''
+            }
+        
+        # Sample frames: start, 1/3, 2/3, end (or fewer if clip is short)
+        num_frames = len(frame_paths)
+        if num_frames <= 2:
+            sample_indices = list(range(num_frames))
+        elif num_frames <= 4:
+            sample_indices = [0, num_frames - 1]
+        else:
+            sample_indices = [0, num_frames // 3, 2 * num_frames // 3, num_frames - 1]
+        
+        sample_frames = [frame_paths[i] for i in sample_indices if i < len(frame_paths)]
+        
+        # Limit to 3-5 frames to control cost
+        max_frames = min(5, len(sample_frames))
+        sample_frames = sample_frames[:max_frames]
+        
+        # Check if we can afford all frames
+        total_cost_estimate = 0
+        affordable_frames = []
+        for frame_path in sample_frames:
+            can_afford, cost = self._can_afford_analysis(frame_path)
+            if not can_afford:
+                break
+            affordable_frames.append(frame_path)
+            total_cost_estimate += cost
+        
+        if not affordable_frames:
+            return {
+                'event_type': 'No event detected',
+                'description': 'Cost limit too low for analysis',
+                'confidence': 'low',
+                'narrative': ''
+            }
+        
+        # Build prompt for sequence analysis
+        event_types_filtered = [et for et in self.event_types if et != "No event detected"]
+        event_types_list = "\n".join([f"- {et}" for et in event_types_filtered])
+        
+        context_info = ""
+        if clip_info:
+            timestamp = clip_info.get('timestamp', 0)
+            duration = clip_info.get('duration', 0)
+            context_info = f" This clip is from timestamp {timestamp:.2f}s and is {duration:.2f} seconds long."
+        
+        prompt = f"""You are analyzing a sequence of frames from a garbage collection video clip. These frames show what happened over time in a 10-second clip where a garbage bin was detected.
+
+Analyze the sequence of frames to understand what happened in this clip. Look for temporal patterns and changes between frames.
+
+Possible events to identify:
+{event_types_list}
+
+IMPORTANT: Focus on these specific scenarios:
+- "Bin missed / not collected": The bin is visible but there is NO mechanical claw, arm, or collection equipment attached to or interacting with the bin throughout the clip
+- "Contamination detected": Non-recyclable waste items mixed with recyclable materials
+- "Overflowing bin or spillage": The bin is filled to the brim with waste protruding or spilling
+- "Blocked access": A car, vehicle, or obstacle is parked directly in front of the bin, preventing access
+
+Provide:
+1. EVENT_TYPE: Which event type best matches what happened (or "No event detected")
+2. DESCRIPTION: A detailed description of what you see in the clip
+3. NARRATIVE: A chronological narrative description of what happened in the sequence - describe the flow of events from start to end of the clip
+4. CONFIDENCE: Your confidence level (high/medium/low)
+
+Context:{context_info}
+
+Respond in this format:
+EVENT_TYPE: [event type or "No event detected"]
+DESCRIPTION: [detailed description]
+NARRATIVE: [chronological narrative of what happened in the clip]
+CONFIDENCE: [high/medium/low]"""
+
+        # Encode all sample frames
+        image_contents = []
+        for frame_path in affordable_frames:
+            base64_image = self.encode_image(frame_path)
+            image_contents.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{base64_image}"
+                }
+            })
+        
+        # Build messages with all frames
+        messages_content = [{"type": "text", "text": prompt}] + image_contents
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": messages_content
+                    }
+                ],
+                max_tokens=800  # More tokens for narrative
+            )
+            
+            # Calculate and track cost
+            total_cost = 0
+            for frame_path in affordable_frames:
+                cost = self._calculate_image_cost(frame_path)
+                total_cost += cost
+            
+            self.total_cost += total_cost
+            self.images_analyzed += len(affordable_frames)
+            
+            result_text = response.choices[0].message.content
+            
+            # Parse response
+            event_type = self._parse_event_type(result_text)
+            description = self._parse_description(result_text)
+            confidence = self._parse_confidence(result_text)
+            narrative = self._parse_narrative(result_text)
+            
+            return {
+                'event_type': event_type,
+                'description': description,
+                'narrative': narrative,
+                'confidence': confidence,
+                'raw_response': result_text,
+                'frames_analyzed': len(affordable_frames),
+                'cost': total_cost,
+                'method': 'vlm'
+            }
+        
+        except Exception as e:
+            return {
+                'event_type': 'No event detected',
+                'description': f'Error analyzing clip: {str(e)}',
+                'narrative': '',
+                'confidence': 'low',
+                'error': str(e),
+                'cost': 0.0
+            }
+    
     def _parse_event_type(self, text: str) -> str:
         """Extract event type from response text"""
         text_lower = text.lower()
@@ -398,3 +560,21 @@ CONFIDENCE: [high/medium/low]"""
             return 'low'
         
         return 'medium'  # Default
+    
+    def _parse_narrative(self, text: str) -> str:
+        """Extract narrative description from response text"""
+        lines = text.split('\n')
+        for i, line in enumerate(lines):
+            if 'narrative:' in line.lower():
+                # Get the narrative text (might span multiple lines)
+                narrative_parts = [line.split(':', 1)[1].strip()]
+                # Check next lines for continuation
+                for j in range(i + 1, min(i + 10, len(lines))):
+                    next_line = lines[j].strip()
+                    if next_line and not any(keyword in next_line.lower() for keyword in ['event_type:', 'description:', 'confidence:', 'narrative:']):
+                        narrative_parts.append(next_line)
+                    else:
+                        break
+                return ' '.join(narrative_parts)
+        
+        return ''

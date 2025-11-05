@@ -2,7 +2,19 @@
 Configuration file for YouTube Bin Detection System
 """
 import os
+from pathlib import Path
 from typing import List
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+# config.py is in the project root, so .env should be in the same directory
+env_path = Path(__file__).parent / '.env'
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path)
+else:
+    # Fallback: try loading from current directory (project root)
+    # This also works if .env is in the current working directory
+    load_dotenv()
 
 # OpenAI API Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

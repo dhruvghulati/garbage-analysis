@@ -88,9 +88,20 @@ class ReportGenerator:
                 'event_type': vlm_analysis.get('event_type', 'No event detected'),
                 'description': vlm_analysis.get('description', ''),
                 'confidence': vlm_analysis.get('confidence', 'medium'),
+                'detection_method': vlm_analysis.get('method', 'vlm'),  # Add this
                 'clip_path': event.get('clip_path', ''),
                 'analyzed_frame': event.get('analyzed_frame', '')
             }
+            
+            # Add overflow classification details if available
+            overflow_class = event.get('overflow_classification', {})
+            if overflow_class:
+                event_data['overflow_detection'] = {
+                    'method': overflow_class.get('method', 'yolo'),
+                    'confidence': overflow_class.get('confidence', 0),
+                    'overflowing_votes': overflow_class.get('overflowing_votes', 0),
+                    'total_votes': overflow_class.get('total_votes', 0)
+                }
             
             report['events'].append(event_data)
         

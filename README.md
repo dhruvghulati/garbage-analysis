@@ -9,15 +9,84 @@ An AI-powered system that detects and analyzes garbage bin events in YouTube vid
 - **Two-Stage Pipeline**: Separates bin detection from event classification for better accuracy
 - **Hybrid Classification**: Uses YOLOv8 for overflow detection + GPT-4 Vision for complex events
 - **Event Types**: Detects 4 specific operational events (missed collection, contamination, overflow, blocked access)
-- **Interactive Dashboard**: Streamlit app for visualizing detections and events
+- **Event Detection Flags**: Clear indicators showing which ML model detected each event
+- **Interactive Dashboard**: Streamlit app for visualizing detections and events with model attribution
 - **Comprehensive Reports**: Generates JSON data and human-readable markdown reports
+
+## Machine Learning Models
+
+This system uses a **hybrid ML approach** combining multiple models for optimal accuracy:
+
+### 1. YOLOv8n (Object Detection)
+- **Purpose**: Initial bin detection in video frames
+- **Model**: `yolov8n.pt` (YOLOv8 nano - pre-trained on COCO dataset)
+- **Usage**: Detects all objects in frames, filters for container-like objects (bottles, cups, bowls) and large objects that could be bins
+- **Location**: `src/bin_detector.py`
+- **Output**: Bounding boxes and confidence scores for potential bins
+- **Note**: Currently uses general object detection; can be replaced with a bin-specific trained model
+
+### 2. YOLOv8 Classification Model (Optional)
+- **Purpose**: Overflow detection (bin full/not full classification)
+- **Model**: Custom classification model (2 classes: "not_full" and "full")
+- **Usage**: Classifies frames from events to determine if bins are overflowing
+- **Location**: `src/overflow_classifier.py`
+- **Status**: Optional - if not available, falls back to GPT-4 Vision for overflow detection
+- **Output**: Overflow probability and confidence scores
+- **Method**: Consensus-based voting across multiple frames (start, middle, end)
+
+### 3. GPT-4 Vision (gpt-4o)
+- **Purpose**: Complex event classification and narrative description
+- **Model**: OpenAI GPT-4o with vision capabilities
+- **Usage**: Analyzes event clips to classify:
+  - Bin missed / not collected
+  - Contamination detected
+  - Overflowing bin or spillage (if YOLO classifier unavailable)
+  - Blocked access
+- **Location**: `src/vlm_analyzer.py`
+- **Input**: Multiple frames from event clips (typically 2-5 frames per event)
+- **Output**: Event type, detailed description, confidence level, and narrative
+- **Cost**: ~$0.01-0.03 per image depending on resolution
+
+### Detection Pipeline
+
+1. **Stage 1 - Bin Detection** (YOLOv8n):
+   - Extracts frames at 1 FPS
+   - Detects objects using YOLOv8n
+   - Filters for potential bins (container-like objects, large objects)
+   - Clusters detections into discrete events
+
+2. **Stage 2 - Event Classification** (Hybrid):
+   - **YOLO Overflow Classifier** (if available):
+     - Analyzes frames from events
+     - Returns overflow probability
+     - If overflow detected → marks event as "Overflowing bin or spillage"
+   - **GPT-4 Vision** (for remaining events):
+     - Analyzes frames for complex events
+     - Provides detailed descriptions and narratives
+     - Returns event type and confidence
+
+### Event Detection Flags
+
+Each detected event includes:
+- **Event Type**: One of the 4 operational events or "No event detected"
+- **Detection Method**: `yolo` (YOLO overflow classifier) or `vlm` (GPT-4 Vision)
+- **Confidence Level**: `high`, `medium`, or `low`
+- **Model-Specific Details**:
+  - YOLO: Overflow probability, votes, classification confidence
+  - VLM: Raw response, frames analyzed, consensus votes
+
+All detection flags are visible in:
+- Streamlit dashboard (event details panel)
+- JSON reports (`outputs/reports/*.json`)
+- Markdown reports (`outputs/reports/*.md`)
 
 ## Setup
 
 ### Prerequisites
 
 - Python 3.8 or higher
-- OpenAI API key
+- OpenAI API key (for GPT-4 Vision)
+- (Optional) YOLOv8 classification model for overflow detection
 
 ### Installation
 
@@ -32,89 +101,25 @@ pip install -r requirements.txt
 ```
 
 3. Set your OpenAI API key:
-```bash
-export OPENAI_API_KEY="your-api-key-here"
-```
 
-Or create a `.env` file with:
-```
-OPENAI_API_KEY=your-api-key-here
-```
+   **Option 1: Using .env file (Recommended)**
+   
+   Create a `.env` file in the project root:
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Then edit `.env` and add your API key:
+   ```
+   OPENAI_API_KEY=sk-your-actual-api-key-here
+   ```
+   
+   The `.env` file is automatically loaded by the application. Make sure it's in `.gitignore` (it already is).
 
-## Usage
-
-### Command Line Interface
-
-Process a YouTube video:
-```bash
-python main.py --url "https://www.youtube.com/watch?v=O3fAVQ8Wm60"
-```
-
-Optional arguments:
-- `--url`: YouTube video URL (required)
-- `--output-dir`: Output directory (default: outputs)
-- `--confidence`: Detection confidence threshold (default: 0.5)
-
-### Streamlit Dashboard
-
-Launch the interactive dashboard:
-```bash
-streamlit run app.py
-```
-
-The dashboard will be available at `http://localhost:8501`
-
-## Project Structure
-
-```
-garbage/
-├── requirements.txt       # Python dependencies
-├── README.md             # This file
-├── config.py             # Configuration settings
-├── main.py               # CLI entry point
-├── app.py                # Streamlit dashboard
-├── src/
-│   ├── __init__.py
-│   ├── video_processor.py    # Video download and frame extraction
-│   ├── bin_detector.py       # YOLO object detection
-│   ├── event_segmenter.py    # Event clustering and clip extraction
-│   ├── vlm_analyzer.py       # GPT-4 Vision API integration
-│   └── report_generator.py   # Report generation
-├── outputs/
-│   ├── videos/          # Downloaded videos
-│   ├── frames/          # Extracted frames
-│   ├── clips/           # Event clips
-│   └── reports/         # JSON and markdown reports
-└── tests/               # Test files
-```
-
-## Workflow
-
-### Stage 1: Bin Detection & Clip Extraction
-1. **Video Download**: Downloads video from YouTube URL using yt-dlp
-2. **Frame Extraction**: Extracts frames at 1 FPS for processing
-3. **Bin Detection**: Runs YOLOv8 to detect garbage bins specifically in each frame
-4. **Event Clustering**: Groups consecutive bin detections into discrete events
-5. **Clip Extraction**: Creates 10-second clips around each bin appearance
-
-### Stage 2: Event Classification
-6. **Overflow Detection**: Uses YOLOv8 classification model (if available) to detect overflowing bins
-7. **VLM Analysis**: Uses GPT-4 Vision to analyze clips for complex events:
-   - Bin missed / not collected
-   - Contamination detected
-   - Blocked access
-8. **Report Generation**: Creates JSON and markdown reports with all findings
-9. **Visualization**: Streamlit dashboard displays results interactively
-
-## Configuration
-
-Edit `config.py` to customize:
-- Detection confidence thresholds
-- Frame sampling rates
-- Clip durations
-- Event types to detect
-- Output directories
-
-## License
-
-MIT
+   **Option 2: Environment variable**
+   
+   ```bash
+   export OPENAI_API_KEY="your-api-key-here"
+   ```
+   
+   Get your API key from: https://platform.openai.com/api-keys
