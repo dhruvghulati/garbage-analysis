@@ -5,6 +5,7 @@ Main CLI entry point for YouTube Bin Detection System
 import argparse
 import sys
 import random
+import os
 from pathlib import Path
 import yt_dlp
 
@@ -41,7 +42,7 @@ def main():
         '--url',
         type=str,
         required=True,
-        help='YouTube video URL to process'
+        help='YouTube video URL or local video file path to process'
     )
     parser.add_argument(
         '--output-dir',
@@ -71,21 +72,37 @@ def main():
         default=None,
         help='Sample size for VLM analysis (default: analyze all events)'
     )
+    parser.add_argument(
+        '--cookies',
+        type=str,
+        default=None,
+        help='Path to cookies file (Netscape format) for YouTube authentication'
+    )
     
     args = parser.parse_args()
     
     print("=" * 60)
     print("YouTube Garbage Bin Event Detection System")
     print("=" * 60)
-    print(f"\nProcessing video: {args.url}\n")
     
-    try:
+    # Determine if input is URL or local file
+    is_local_file = os.path.isfile(args.url) if hasattr(os.path, 'isfile') else False
+    if not is_local_file and not args.url.startswith(('http://', 'https://')):
+        # Check if it's a relative path that exists
+        is_local_file = os.path.exists(args.url)
+    
+    if is_local_file:
+        print(f"\nProcessing local video file: {args.url}\n")
+        video_id = Path(args.url).stem
+    else:
+        print(f"\nProcessing video: {args.url}\n")
         # Extract video ID for checking existing files
         video_id = extract_video_id(args.url)
-        
-        # Step 1: Download video (or use existing)
+    
+    try:
+        # Step 1: Download video (or use existing/local file)
         print("📥 Step 1/7: Checking video...")
-        video_path = video_processor.download_video(args.url)
+        video_path = video_processor.download_video(args.url, cookies_file=args.cookies)
         print(f"✅ Video ready: {video_path}\n")
         
         # Step 2: Get video info

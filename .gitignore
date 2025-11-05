@@ -43,3 +43,4 @@ config_local.py
 
 # Logs
 *.log
+cookies.txt
