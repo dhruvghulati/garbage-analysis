@@ -52,6 +52,8 @@ def download_video(url: str, output_dir: str = None) -> str:
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'quiet': False,
         'no_warnings': False,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'extractor_args': {'youtube': {'skip': ['dash', 'hls']}},
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
