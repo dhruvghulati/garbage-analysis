@@ -9,33 +9,68 @@ from pathlib import Path
 import config
 
 
-def download_video(url: str, output_dir: str = None) -> str:
+def download_video(url_or_path: str, output_dir: str = None, cookies_file: str = None) -> str:
     """
-    Download a YouTube video and return the path to the downloaded file.
+    Download a YouTube video or use a local video file.
     Checks if video already exists and skips download if found.
     
     Args:
-        url: YouTube video URL
+        url_or_path: YouTube video URL or local file path
         output_dir: Directory to save the video (default: outputs/videos)
+        cookies_file: Path to cookies file (Netscape format) for authentication
         
     Returns:
-        Path to the downloaded video file
+        Path to the video file (local file or downloaded file)
     """
+    # Check if input is a local file path
+    if os.path.isfile(url_or_path):
+        print(f"   📁 Using local video file: {url_or_path}")
+        return url_or_path
+    
+    # Check if input looks like a URL (starts with http:// or https://)
+    if not url_or_path.startswith(('http://', 'https://')):
+        # Treat as local file path even if it doesn't exist (will raise error later)
+        if os.path.exists(url_or_path):
+            print(f"   📁 Using local video file: {url_or_path}")
+            return url_or_path
+        else:
+            raise FileNotFoundError(f"Video file not found: {url_or_path}")
+    
+    # It's a URL, proceed with YouTube download
+    url = url_or_path
+    
+    # Extract video ID from URL (handle playlist parameters)
+    if 'v=' in url:
+        video_id = url.split('v=')[-1].split('&')[0].split('#')[0]
+        # Clean up URL to remove playlist parameters to download just the video
+        if '&list=' in url or '&index=' in url:
+            # Extract just the video ID part
+            base_url = url.split('&')[0] if '&' in url else url
+            if '?' in base_url and 'v=' in base_url:
+                url = f"{base_url.split('?')[0]}?v={video_id}"
+            else:
+                url = f"https://www.youtube.com/watch?v={video_id}"
+    else:
+        video_id = 'video'
+    
     if output_dir is None:
         output_dir = config.VIDEOS_DIR
     
     os.makedirs(output_dir, exist_ok=True)
     
-    # Extract video ID to check for existing file
-    with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+    # Extract video ID to get correct ID (may differ from URL parsing)
+    ext = 'mp4'
+    ydl_opts_check = {'quiet': True, 'no_warnings': True, 'noplaylist': True}
+    if cookies_file and os.path.exists(cookies_file):
+        ydl_opts_check['cookiefile'] = cookies_file
+    with yt_dlp.YoutubeDL(ydl_opts_check) as ydl:
         try:
             info = ydl.extract_info(url, download=False)
-            video_id = info.get('id', 'video')
+            video_id = info.get('id', video_id)
             ext = info.get('ext', 'mp4')
         except Exception:
-            # Fallback: try to extract ID from URL
-            video_id = url.split('v=')[-1].split('&')[0] if 'v=' in url else 'video'
-            ext = 'mp4'
+            # Fallback: use extracted ID from URL parsing
+            pass
     
     # Check if video already exists
     video_path = os.path.join(output_dir, f"{video_id}.{ext}")
@@ -52,7 +87,15 @@ def download_video(url: str, output_dir: str = None) -> str:
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'quiet': False,
         'no_warnings': False,
+        'noplaylist': True,  # Download only the video, not the entire playlist
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'extractor_args': {'youtube': {'skip': ['dash', 'hls']}},
     }
+    
+    # Add cookies file if provided
+    if cookies_file and os.path.exists(cookies_file):
+        ydl_opts['cookiefile'] = cookies_file
+        print(f"   🍪 Using cookies file: {cookies_file}")
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         # Extract video info and download
